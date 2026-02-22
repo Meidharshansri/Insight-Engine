@@ -171,3 +171,41 @@ def predict_next_close(symbol: str, db: Session = Depends(get_db)):
     return {
         "predicted_next_close": round(float(prediction[0]), 4)
     }
+
+@router.get("/health")
+def health_check():
+    return {"status": "OK"}
+
+@router.get("/stocks/{symbol}/risk-score")
+def risk_score(symbol: str, db: Session = Depends(get_db)):
+
+    stock = db.query(Stock).filter(Stock.symbol == symbol).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock not found")
+
+    prices = db.query(HistoricalPrice).filter(
+        HistoricalPrice.stock_id == stock.id
+    ).order_by(HistoricalPrice.date).all()
+
+    if len(prices) < 2:
+        return {"message": "Not enough data"}
+
+    returns = []
+    for i in range(1, len(prices)):
+        prev_close = float(prices[i - 1].close_price)
+        current_close = float(prices[i].close_price)
+        returns.append((current_close - prev_close) / prev_close)
+
+    volatility = (sum(r**2 for r in returns) / len(returns)) ** 0.5
+
+    if volatility < 0.01:
+        level = "Low Risk"
+    elif volatility < 0.03:
+        level = "Medium Risk"
+    else:
+        level = "High Risk"
+
+    return {
+        "risk_score": round(volatility, 6),
+        "risk_level": level
+    }
