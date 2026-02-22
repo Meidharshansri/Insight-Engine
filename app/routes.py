@@ -1,10 +1,11 @@
 import math
+import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import Stock, HistoricalPrice
 from app.schemas import StockCreate, PriceCreate
-
+from sklearn.linear_model import LinearRegression
 
 # -------------------------
 # Database Dependency
@@ -139,4 +140,34 @@ def calculate_volatility(symbol: str, db: Session = Depends(get_db)):
 
     return {
         "volatility": round(volatility, 6)
+    }
+
+
+
+@router.get("/stocks/{symbol}/predict")
+def predict_next_close(symbol: str, db: Session = Depends(get_db)):
+
+    stock = db.query(Stock).filter(Stock.symbol == symbol).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock not found")
+
+    prices = db.query(HistoricalPrice).filter(
+        HistoricalPrice.stock_id == stock.id
+    ).order_by(HistoricalPrice.date).all()
+
+    if len(prices) < 5:
+        return {"message": "Need at least 5 data points"}
+
+    # Prepare dataset
+    X = np.array(range(len(prices))).reshape(-1, 1)
+    y = np.array([float(p.close_price) for p in prices])
+
+    model = LinearRegression()
+    model.fit(X, y)
+
+    next_day_index = np.array([[len(prices)]])
+    prediction = model.predict(next_day_index)
+
+    return {
+        "predicted_next_close": round(float(prediction[0]), 4)
     }
